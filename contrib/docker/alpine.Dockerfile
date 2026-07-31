@@ -38,8 +38,8 @@ RUN mkdir -p build \
  && ninja
 
 # Fetch Go dependencies
-RUN mkdir /home/user/radiance
-WORKDIR /home/user/radiance
+RUN mkdir /home/user/sidewinder
+WORKDIR /home/user/sidewinder
 COPY go.mod go.sum ./
 RUN go mod download
 
@@ -50,10 +50,10 @@ COPY . ./
 RUN mkdir build \
  && sh && CGO_CFLAGS="-I/home/user/rocksdb/include" \
     CGO_LDFLAGS="-L/home/user/rocksdb/build" \
-    go build -o build/radiance -buildvcs=false -ldflags "-extldflags '-static -lbz2'" ./cmd/radiance
+    go build -o build/sidewinder -buildvcs=false -ldflags "-extldflags '-static -lbz2'" ./cmd/sidewinder
 
 FROM alpine
 # Copy CA certs
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 # Copy build artifacts
-COPY --from=builder /home/user/radiance/build/radiance /usr/bin/radiance
+COPY --from=builder /home/user/sidewinder/build/sidewinder /usr/bin/sidewinder

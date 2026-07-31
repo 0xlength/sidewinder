@@ -4,11 +4,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/0xlength/sidewinder/fixtures"
+	"github.com/0xlength/sidewinder/pkg/runtime"
 	"github.com/gagliardetto/solana-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.firedancer.io/radiance/fixtures"
-	"go.firedancer.io/radiance/pkg/runtime"
 )
 
 func TestReadGenesisFromArchive(t *testing.T) {

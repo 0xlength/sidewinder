@@ -1,7 +1,7 @@
 package sealevel
 
 import (
-	"go.firedancer.io/radiance/pkg/sbpf"
+	"github.com/0xlength/sidewinder/pkg/sbpf"
 )
 
 var registry = Syscalls()
