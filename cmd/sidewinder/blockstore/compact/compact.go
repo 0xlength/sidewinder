@@ -3,14 +3,14 @@
 package compact
 
 import (
-	"github.com/linxGnu/grocksdb"
+	"github.com/0xlength/sidewinder/pkg/blockstore"
 	"github.com/spf13/cobra"
 	"k8s.io/klog/v2"
 )
 
 var Cmd = cobra.Command{
-	Use:   "compact <rocksdb>",
-	Short: "Compact RocksDB database",
+	Use:   "compact <blockstore>",
+	Short: "Compact Pebble blockstore",
 	Args:  cobra.ExactArgs(1),
 }
 
@@ -19,34 +19,23 @@ func init() {
 }
 
 func run(_ *cobra.Command, args []string) {
-	dbOpts := grocksdb.NewDefaultOptions()
-
-	cfNames, err := grocksdb.ListColumnFamilies(dbOpts, args[0])
-	if err != nil {
-		klog.Exitf("Failed to list column families: %s", err)
-	}
-	cfOpts := make([]*grocksdb.Options, len(cfNames))
-	for i := range cfOpts {
-		cfOpts[i] = grocksdb.NewDefaultOptions()
-	}
-
-	db, cfs, err := grocksdb.OpenDbColumnFamilies(dbOpts, args[0], cfNames, cfOpts)
+	db, err := blockstore.OpenReadWrite(args[0])
 	if err != nil {
 		klog.Exitf("Failed to open blockstore: %s", err)
 	}
 	defer db.Close()
 
-	klog.Infof("Flushing WAL")
-	if err := db.FlushWAL(true); err != nil {
-		klog.Exitf("Failed to flush WAL: %s", err)
+	klog.Infof("Flushing")
+	if err := db.Flush(); err != nil {
+		klog.Exitf("Failed to flush: %s", err)
 	}
-	klog.Infof("Flushed WAL")
+	klog.Infof("Flushed")
 
-	for _, cf := range cfs {
-		name := cf.Name()
-		klog.Infof("Compacting %s", name)
-		db.CompactRangeCF(cf, grocksdb.Range{})
-		klog.Infof("Compacted %s", name)
+	for _, cf := range db.Columns() {
+		klog.Infof("Compacting %s", cf.Name)
+	}
+	if err := db.Compact(); err != nil {
+		klog.Exitf("Failed to compact: %s", err)
 	}
 
 	klog.Infof("Done")

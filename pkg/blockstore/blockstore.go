@@ -1,13 +1,15 @@
-// Package blockstore is a read-only client for the Solana blockstore database.
+// Package blockstore is a client for the Solana blockstore database.
 //
 // For the reference implementation in Rust, see here:
 // https://docs.rs/solana-ledger/latest/solana_ledger/blockstore/struct.Blockstore.html
 //
-// This package requires Cgo to access RocksDB (via grocksdb).
+// Storage is Pebble (github.com/cockroachdb/pebble). Each column family is a
+// separate Pebble DB under <path>/<cf_name>/. This layout is not compatible
+// with Agave/Labs RocksDB ledgers.
 //
 // # Compatibility
 //
-// We aim to support all Solana Rust versions since mainnet genesis.
+// Key and value encodings aim to match Solana ledger formats since mainnet genesis.
 // Test fixtures are added for each major revision.
 package blockstore
 
@@ -17,7 +19,7 @@ import (
 
 // Column families
 const (
-	// CfDefault is the default column family, which is required by RocksDB.
+	// CfDefault is the default column family.
 	CfDefault = "default"
 
 	// CfMeta contains slot metadata (SlotMeta)

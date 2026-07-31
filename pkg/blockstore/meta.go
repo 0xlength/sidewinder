@@ -21,13 +21,13 @@ type SlotMeta struct {
 	EntryEndIndexes    []uint32 `yaml:"completed_data_indexes,flow"`
 }
 
-// MakeSlotKey creates the RocksDB key for CfMeta, CfRoot.
+// MakeSlotKey creates the key for CfMeta, CfRoot.
 func MakeSlotKey(slot uint64) (key [8]byte) {
 	binary.BigEndian.PutUint64(key[0:8], slot)
 	return
 }
 
-// ParseSlotKey decodes the RocksDB keys in CfMeta, CfRoot.
+// ParseSlotKey decodes keys in CfMeta, CfRoot.
 func ParseSlotKey(key []byte) (slot uint64, ok bool) {
 	ok = len(key) == 8
 	if !ok {

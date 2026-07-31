@@ -18,12 +18,12 @@ import (
 )
 
 var Cmd = cobra.Command{
-	Use:   "dump-batches <rocksdb> <out> <slots>",
+	Use:   "dump-batches <blockstore> <out> <slots>",
 	Short: "Dump shred/microblock batches to file system",
-	Long: `dump-batches writes raw serialized shred data batches from RocksDB to the file system.
+	Long: `dump-batches writes raw serialized shred data batches from the blockstore to the file system.
 
 Creates file paths ./<out>/<slot>/batch<index>.bin`,
-	Example: `    dump-shreds ./rocksdb ./batches 1:3,4
+	Example: `    dump-shreds ./blockstore ./batches 1:3,4
 ./batches/1/batch0.bin
 ...
 ./batches/2/batch0.bin

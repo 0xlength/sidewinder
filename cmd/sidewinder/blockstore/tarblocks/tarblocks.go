@@ -18,8 +18,8 @@ import (
 )
 
 var Cmd = cobra.Command{
-	Use:   "tar-blocks <rocksdb> <out>",
-	Short: "Export rooted blocks from RocksDB to TAR stream",
+	Use:   "tar-blocks <blockstore> <out>",
+	Short: "Export rooted blocks from blockstore to TAR stream",
 	Long: `Creates a TAR stream of rooted blocks in serialized-batches binary format.
 
 Each block/<slot>.bin file is a bincode Vec<Vec<Entry>> serialization of the block data.

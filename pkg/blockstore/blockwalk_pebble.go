@@ -7,16 +7,15 @@ import (
 	"sort"
 
 	"github.com/0xlength/sidewinder/pkg/shred"
-	"github.com/linxGnu/grocksdb"
 	"k8s.io/klog/v2"
 )
 
-// BlockWalk walks blocks in ascending order over multiple RocksDB databases.
+// BlockWalk walks blocks in ascending order over multiple blockstore databases.
 type BlockWalk struct {
 	handles       []WalkHandle // sorted
 	shredRevision int
 
-	root *grocksdb.Iterator
+	root *Iterator
 }
 
 func NewBlockWalk(handles []WalkHandle, shredRevision int) (*BlockWalk, error) {
@@ -35,7 +34,6 @@ func (m *BlockWalk) Seek(slot uint64) bool {
 	for len(m.handles) > 0 {
 		h := m.handles[0]
 		if slot < h.Start {
-			// trying to Seek to slot below lowest available
 			return false
 		}
 		if slot <= h.Stop {
@@ -71,21 +69,23 @@ func (m *BlockWalk) Next() (meta *SlotMeta, ok bool) {
 	}
 	h := m.handles[0]
 	if m.root == nil {
-		// Open Next database
-		m.root = h.DB.DB.NewIteratorCF(grocksdb.NewDefaultReadOptions(), h.DB.CfRoot)
+		iter, err := h.DB.CfRoot.NewIterator()
+		if err != nil {
+			klog.Errorf("FATAL: cannot open root iterator: %s", err)
+			return nil, false
+		}
+		m.root = iter
 		key := MakeSlotKey(h.Start)
 		m.root.Seek(key[:])
 	}
 	if !m.root.Valid() {
-		// Close current DB and go to Next
 		m.pop()
-		return m.Next() // TODO tail recursion optimization?
+		return m.Next()
 	}
 
-	// Get key at current position.
-	slot, ok := ParseSlotKey(m.root.Key().Data())
+	slot, ok := ParseSlotKey(m.root.Key())
 	if !ok {
-		klog.Exitf("Invalid slot key: %x", m.root.Key().Data())
+		klog.Exitf("Invalid slot key: %x", m.root.Key())
 	}
 	if slot > h.Stop {
 		m.pop()
@@ -93,17 +93,13 @@ func (m *BlockWalk) Next() (meta *SlotMeta, ok bool) {
 	}
 	h.Start = slot
 
-	// Get value at current position.
 	var err error
 	meta, err = h.DB.GetSlotMeta(slot)
 	if err != nil {
-		// Invalid slot metas are irrecoverable.
-		// The CAR generation process must stop here.
 		klog.Errorf("FATAL: invalid slot meta at slot %d, aborting CAR generation: %s", slot, err)
 		return nil, false
 	}
 
-	// Seek iterator to Next entry.
 	m.root.Next()
 
 	return meta, true
@@ -131,7 +127,6 @@ func (m *BlockWalk) Entries(meta *SlotMeta) ([][]shred.Entry, error) {
 	return batches, nil
 }
 
-// pop closes the current open DB.
 func (m *BlockWalk) pop() {
 	m.root.Close()
 	m.root = nil
@@ -156,10 +151,8 @@ type WalkHandle struct {
 	Stop  uint64 // inclusive
 }
 
-// sortWalkHandles detects bounds of each DB and sorts handles.
 func sortWalkHandles(h []WalkHandle, shredRevision int) error {
 	for i, db := range h {
-		// Find lowest and highest available slot in DB.
 		start, err := getLowestCompletedSlot(db.DB, shredRevision)
 		if err != nil {
 			return err
@@ -180,39 +173,34 @@ func sortWalkHandles(h []WalkHandle, shredRevision int) error {
 	return nil
 }
 
-// getLowestCompleteSlot finds the lowest slot in a RocksDB from which slots are complete onwards.
 func getLowestCompletedSlot(d *DB, shredRevision int) (uint64, error) {
-	iter := d.DB.NewIteratorCF(grocksdb.NewDefaultReadOptions(), d.CfMeta)
+	iter, err := d.CfMeta.NewIterator()
+	if err != nil {
+		return 0, err
+	}
 	defer iter.Close()
 	iter.SeekToFirst()
 
-	// The Solana validator periodically prunes old slots to keep database space bounded.
-	// Therefore, the first (few) slots might have valid meta entries but missing data shreds.
-	// To work around this, we simply start at the lowest meta and iterate until we find a complete entry.
-
 	const maxTries = 32
 	for i := 0; iter.Valid() && i < maxTries; i++ {
-		slot, ok := ParseSlotKey(iter.Key().Data())
+		slot, ok := ParseSlotKey(iter.Key())
 		if !ok {
 			return 0, fmt.Errorf(
-				"getLowestCompletedSlot(%s): choked on invalid slot key: %x", d.DB.Name(), iter.Key().Data())
+				"getLowestCompletedSlot(%s): choked on invalid slot key: %x", d.Name(), iter.Key())
 		}
 
-		// RocksDB row writes are atomic, therefore meta should never be broken.
-		// If we fail to decode meta, bail as early as possible, as we cannot guarantee compatibility.
-		meta, err := ParseBincode[SlotMeta](iter.Value().Data())
+		meta, err := ParseBincode[SlotMeta](iter.Value())
 		if err != nil {
 			return 0, fmt.Errorf(
-				"getLowestCompletedSlot(%s): choked on invalid meta for slot %d", d.DB.Name(), slot)
+				"getLowestCompletedSlot(%s): choked on invalid meta for slot %d", d.Name(), slot)
 		}
 
 		if _, err = d.GetEntries(meta, shredRevision); err == nil {
-			// Success!
 			return slot, nil
 		}
 
 		iter.Next()
 	}
 
-	return 0, fmt.Errorf("failed to find a valid complete slot in DB: %s", d.DB.Name())
+	return 0, fmt.Errorf("failed to find a valid complete slot in DB: %s", d.Name())
 }

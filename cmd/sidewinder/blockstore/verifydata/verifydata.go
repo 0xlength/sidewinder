@@ -12,7 +12,6 @@ import (
 
 	"github.com/0xlength/sidewinder/pkg/blockstore"
 	"github.com/VividCortex/ewma"
-	"github.com/linxGnu/grocksdb"
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 	"github.com/vbauerster/mpb/v8"
@@ -22,7 +21,7 @@ import (
 )
 
 var Cmd = cobra.Command{
-	Use:   "verify-data <rocksdb>",
+	Use:   "verify-data <blockstore>",
 	Short: "Verify ledger data integrity",
 	Long: "Iterates through all data shreds and performs sanity checks.\n" +
 		"Useful for checking the correctness of the sidewinder implementation.\n" +
@@ -54,8 +53,8 @@ func run(c *cobra.Command, args []string) {
 		workers = uint(runtime.NumCPU())
 	}
 
-	rocksDB := args[0]
-	db, err := blockstore.OpenReadOnly(rocksDB)
+	dbPath := args[0]
+	db, err := blockstore.OpenReadOnly(dbPath)
 	if err != nil {
 		klog.Exitf("Failed to open blockstore: %s", err)
 	}
@@ -181,7 +180,9 @@ func run(c *cobra.Command, args []string) {
 			numBytes:    &numBytes,
 			numTxns:     &numTxns,
 		}
-		w.init(db, wLo)
+		if err := w.init(db, wLo); err != nil {
+			klog.Exitf("[worker %d]: init failed: %s", i, err)
+		}
 		group.Go(func() error {
 			defer w.close()
 			return w.run(ctx)
@@ -216,14 +217,17 @@ func run(c *cobra.Command, args []string) {
 
 // slotBounds returns the lowest and highest available slots in the meta table.
 func slotBounds(db *blockstore.DB) (low uint64, high uint64, ok bool) {
-	iter := db.DB.NewIteratorCF(grocksdb.NewDefaultReadOptions(), db.CfMeta)
+	iter, err := db.CfMeta.NewIterator()
+	if err != nil {
+		return
+	}
 	defer iter.Close()
 
 	iter.SeekToFirst()
 	if ok = iter.Valid(); !ok {
 		return
 	}
-	low, ok = blockstore.ParseSlotKey(iter.Key().Data())
+	low, ok = blockstore.ParseSlotKey(iter.Key())
 	if !ok {
 		return
 	}
@@ -232,7 +236,7 @@ func slotBounds(db *blockstore.DB) (low uint64, high uint64, ok bool) {
 	if ok = iter.Valid(); !ok {
 		return
 	}
-	high, ok = blockstore.ParseSlotKey(iter.Key().Data())
+	high, ok = blockstore.ParseSlotKey(iter.Key())
 	high++
 	return
 }

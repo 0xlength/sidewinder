@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	"github.com/0xlength/sidewinder/pkg/shred"
-	"github.com/linxGnu/grocksdb"
 )
 
 func (d *DB) GetEntries(meta *SlotMeta, shredRevision int) ([]Entries, error) {
@@ -23,7 +22,10 @@ func (d *DB) GetAllDataShreds(slot uint64, revision int) ([]shred.Shred, error) 
 }
 
 func (d *DB) GetDataShreds(slot uint64, startIdx, endIdx uint32, revision int) ([]shred.Shred, error) {
-	iter := d.DB.NewIteratorCF(grocksdb.NewDefaultReadOptions(), d.CfDataShred)
+	iter, err := d.CfDataShred.NewIterator()
+	if err != nil {
+		return nil, err
+	}
 	defer iter.Close()
 	key := MakeShredKey(slot, uint64(startIdx))
 	iter.Seek(key[:])
@@ -33,7 +35,7 @@ func (d *DB) GetDataShreds(slot uint64, startIdx, endIdx uint32, revision int) (
 // GetDataShredsFromIter is like GetDataShreds, but takes a custom iterator.
 // The iterator must be seeked to the indicated slot/startIdx.
 func GetDataShredsFromIter(
-	iter *grocksdb.Iterator,
+	iter *Iterator,
 	slot uint64,
 	startIdx, endIdx uint32,
 	revision int,
@@ -43,7 +45,7 @@ func GetDataShredsFromIter(
 		var curSlot, index uint64
 		valid := iter.Valid()
 		if valid {
-			key := iter.Key().Data()
+			key := iter.Key()
 			if len(key) != 16 {
 				continue
 			}
@@ -56,7 +58,7 @@ func GetDataShredsFromIter(
 		if index != uint64(i) {
 			return nil, fmt.Errorf("missing shred %d for slot %d", i, index)
 		}
-		s := shred.NewShredFromSerialized(iter.Value().Data(), revision)
+		s := shred.NewShredFromSerialized(iter.Value(), revision)
 		if !s.Ok() {
 			return nil, fmt.Errorf("failed to deserialize shred %d/%d", slot, i)
 		}
@@ -70,56 +72,46 @@ func (d *DB) GetDataShred(slot, index uint64, revision int) shred.Shred {
 	return d.getShred(d.CfDataShred, slot, index, revision)
 }
 
-func (d *DB) GetRawDataShred(slot, index uint64) (*grocksdb.Slice, error) {
+func (d *DB) GetRawDataShred(slot, index uint64) ([]byte, error) {
 	return d.getRawShred(d.CfDataShred, slot, index)
 }
 
 func (d *DB) GetAllCodeShreds(slot uint64) ([]shred.Shred, error) {
-	return d.getAllShreds(d.CfDataShred, slot, shred.RevisionV2)
+	return d.getAllShreds(d.CfCodeShred, slot, shred.RevisionV2)
 }
 
 func (d *DB) GetCodeShred(slot, index uint64) shred.Shred {
 	return d.getShred(d.CfCodeShred, slot, index, shred.RevisionV2)
 }
 
-func (d *DB) GetRawCodeShred(slot, index uint64) (*grocksdb.Slice, error) {
+func (d *DB) GetRawCodeShred(slot, index uint64) ([]byte, error) {
 	return d.getRawShred(d.CfCodeShred, slot, index)
 }
 
-func (d *DB) getRawShred(
-	cf *grocksdb.ColumnFamilyHandle,
-	slot, index uint64,
-) (*grocksdb.Slice, error) {
-	opts := grocksdb.NewDefaultReadOptions()
+func (d *DB) getRawShred(cf *Column, slot, index uint64) ([]byte, error) {
 	key := MakeShredKey(slot, index)
-	return d.DB.GetCF(opts, cf, key[:])
+	return getBytes(cf, key[:])
 }
 
-func (d *DB) getShred(
-	cf *grocksdb.ColumnFamilyHandle,
-	slot, index uint64,
-	revision int,
-) (s shred.Shred) {
+func (d *DB) getShred(cf *Column, slot, index uint64, revision int) (s shred.Shred) {
 	value, err := d.getRawShred(cf, slot, index)
 	if err != nil {
 		return
 	}
-	defer value.Free()
-	return shred.NewShredFromSerialized(value.Data(), revision)
+	return shred.NewShredFromSerialized(value, revision)
 }
 
-func (d *DB) getAllShreds(
-	cf *grocksdb.ColumnFamilyHandle,
-	slot uint64,
-	revision int,
-) ([]shred.Shred, error) {
-	iter := d.DB.NewIteratorCF(grocksdb.NewDefaultReadOptions(), cf)
+func (d *DB) getAllShreds(cf *Column, slot uint64, revision int) ([]shred.Shred, error) {
+	iter, err := cf.NewIterator()
+	if err != nil {
+		return nil, err
+	}
 	defer iter.Close()
 	prefix := MakeSlotKey(slot)
 	iter.Seek(prefix[:])
 	var shreds []shred.Shred
 	for iter.ValidForPrefix(prefix[:]) {
-		s := shred.NewShredFromSerialized(iter.Value().Data(), revision)
+		s := shred.NewShredFromSerialized(iter.Value(), revision)
 		if !s.Ok() {
 			return nil, fmt.Errorf("invalid shred %d/%d", slot, len(shreds))
 		}

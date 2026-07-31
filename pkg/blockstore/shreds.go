@@ -9,14 +9,14 @@ import (
 	bin "github.com/gagliardetto/binary"
 )
 
-// MakeShredKey creates the RocksDB key for CfDataShred or CfCodeShred.
+// MakeShredKey creates the key for CfDataShred or CfCodeShred.
 func MakeShredKey(slot, index uint64) (key [16]byte) {
 	binary.BigEndian.PutUint64(key[0:8], slot)
 	binary.BigEndian.PutUint64(key[8:16], index)
 	return
 }
 
-// ParseShredKey decodes the RocksDB keys in CfDataShred or CfCodeShred.
+// ParseShredKey decodes keys in CfDataShred or CfCodeShred.
 func ParseShredKey(key []byte) (slot uint64, index uint64, ok bool) {
 	ok = len(key) == 16
 	if !ok {

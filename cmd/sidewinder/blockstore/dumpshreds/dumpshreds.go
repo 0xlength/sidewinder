@@ -12,22 +12,21 @@ import (
 
 	"github.com/0xlength/sidewinder/cmd/sidewinder/blockstore/util"
 	"github.com/0xlength/sidewinder/pkg/blockstore"
-	"github.com/linxGnu/grocksdb"
 	"github.com/spf13/cobra"
 	"k8s.io/klog/v2"
 )
 
 var Cmd = cobra.Command{
-	Use:   "dump-shreds <rocksdb> <out> <slots>",
+	Use:   "dump-shreds <blockstore> <out> <slots>",
 	Short: "Dump shreds to file system",
-	Long: `dump-shreds writes raw code and data shreds from RocksDB to the file system.
+	Long: `dump-shreds writes raw code and data shreds from the blockstore to the file system.
 Slots can be specified as integers or ranges separated by comma.
 
 Creates file paths ./<out>/<slot>/<type><index>
   type is either 'd' (data) or 'c' (code)
 
 File paths are written to stdout.`,
-	Example: `    dump-shreds ./rocksdb ./shreds 1,2,100:200
+	Example: `    dump-shreds ./blockstore ./shreds 1,2,100:200
       ./shreds/1/d000
       ./shreds/1/d001
       ...
@@ -47,10 +46,10 @@ func init() {
 }
 
 func run(_ *cobra.Command, args []string) {
-	rocksDB := args[0]
+	dbPath := args[0]
 	outPath := args[1]
 
-	db, err := blockstore.OpenReadOnly(rocksDB)
+	db, err := blockstore.OpenReadOnly(dbPath)
 	if err != nil {
 		klog.Exitf("Failed to open blockstore: %s", err)
 	}
@@ -79,31 +78,30 @@ func dumpSlot(db *blockstore.DB, outPath string, slot uint64) error {
 		return err
 	}
 
-	if err := dumpShreds(db, slotPath, slot, db.CfCodeShred, "c"); err != nil {
+	if err := dumpShreds(db.CfCodeShred, slotPath, slot, "c"); err != nil {
 		return err
 	}
-	if err := dumpShreds(db, slotPath, slot, db.CfDataShred, "d"); err != nil {
+	if err := dumpShreds(db.CfDataShred, slotPath, slot, "d"); err != nil {
 		return err
 	}
 	return nil
 }
 
-func dumpShreds(
-	db *blockstore.DB, slotPath string, slot uint64,
-	cf *grocksdb.ColumnFamilyHandle,
-	namePrefix string,
-) error {
-	iter := db.DB.NewIteratorCF(grocksdb.NewDefaultReadOptions(), cf)
+func dumpShreds(cf *blockstore.Column, slotPath string, slot uint64, namePrefix string) error {
+	iter, err := cf.NewIterator()
+	if err != nil {
+		return err
+	}
 	defer iter.Close()
 	prefix := blockstore.MakeShredKey(slot, 0)
 	iter.Seek(prefix[:])
 	for iter.ValidForPrefix(prefix[:8]) {
-		curSlot, curIndex, ok := blockstore.ParseShredKey(iter.Key().Data())
+		curSlot, curIndex, ok := blockstore.ParseShredKey(iter.Key())
 		if !ok || curSlot != slot {
 			break
 		}
 		p := filepath.Join(slotPath, fmt.Sprintf("%s%04d", namePrefix, curIndex))
-		if err := os.WriteFile(p, iter.Value().Data(), 0644); err != nil {
+		if err := os.WriteFile(p, iter.Value(), 0644); err != nil {
 			return err
 		}
 		fmt.Println(p)

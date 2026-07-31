@@ -9,7 +9,6 @@ import (
 
 	"github.com/0xlength/sidewinder/cmd/sidewinder/blockstore/util"
 	"github.com/0xlength/sidewinder/pkg/blockstore"
-	"github.com/linxGnu/grocksdb"
 	"github.com/segmentio/textio"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -17,7 +16,7 @@ import (
 )
 
 var Cmd = cobra.Command{
-	Use:   "yaml <rocksdb>",
+	Use:   "yaml <blockstore>",
 	Short: "Dump blockstore content to YAML",
 	Args:  cobra.ExactArgs(1),
 }
@@ -44,11 +43,11 @@ func run(c *cobra.Command, args []string) {
 		//	os.Exit(0)
 	}()
 
-	rocksDB := args[0]
+	dbPath := args[0]
 
-	printColumnFamilies(rocksDB)
+	printColumnFamilies(dbPath)
 
-	db, err := blockstore.OpenReadOnly(rocksDB)
+	db, err := blockstore.OpenReadOnly(dbPath)
 	if err != nil {
 		klog.Exitf("Failed to open blockstore: %s", err)
 	}
@@ -78,8 +77,7 @@ func run(c *cobra.Command, args []string) {
 }
 
 func printColumnFamilies(dbPath string) {
-	dbOpts := grocksdb.NewDefaultOptions()
-	names, err := grocksdb.ListColumnFamilies(dbOpts, dbPath)
+	names, err := blockstore.ListColumnFamilies(dbPath)
 	if err != nil {
 		klog.Error("Failed to list column families: %s", err)
 		return
@@ -100,8 +98,11 @@ func printRoot(db *blockstore.DB) {
 }
 
 func dumpRoots(db *blockstore.DB) {
-	opts := grocksdb.NewDefaultReadOptions()
-	iter := db.DB.NewIteratorCF(opts, db.CfRoot)
+	iter, err := db.CfRoot.NewIterator()
+	if err != nil {
+		klog.Error("Failed to iterate roots: ", err)
+		return
+	}
 	defer iter.Close()
 	iter.SeekToFirst()
 
@@ -112,7 +113,7 @@ func dumpRoots(db *blockstore.DB) {
 
 	fmt.Println("roots:")
 	for iter.Valid() {
-		slot, ok := blockstore.ParseSlotKey(iter.Key().Data())
+		slot, ok := blockstore.ParseSlotKey(iter.Key())
 		if !ok {
 			continue
 		}
@@ -122,12 +123,16 @@ func dumpRoots(db *blockstore.DB) {
 }
 
 func printMetaRange(db *blockstore.DB) {
-	iter := db.DB.NewIteratorCF(grocksdb.NewDefaultReadOptions(), db.CfMeta)
+	iter, err := db.CfMeta.NewIterator()
+	if err != nil {
+		klog.Error("Failed to iterate meta: ", err)
+		return
+	}
 	defer iter.Close()
 
 	iter.SeekToFirst()
 	if iter.Valid() {
-		slot, ok := blockstore.ParseSlotKey(iter.Key().Data())
+		slot, ok := blockstore.ParseSlotKey(iter.Key())
 		if ok {
 			fmt.Printf("first_slot: %d\n", slot)
 		}
@@ -135,7 +140,7 @@ func printMetaRange(db *blockstore.DB) {
 
 	iter.SeekToLast()
 	if iter.Valid() {
-		slot, ok := blockstore.ParseSlotKey(iter.Key().Data())
+		slot, ok := blockstore.ParseSlotKey(iter.Key())
 		if ok {
 			fmt.Printf("last_slot: %d\n", slot)
 		}
@@ -143,7 +148,10 @@ func printMetaRange(db *blockstore.DB) {
 }
 
 func dumpAllSlots(db *blockstore.DB) {
-	iter := db.DB.NewIteratorCF(grocksdb.NewDefaultReadOptions(), db.CfMeta)
+	iter, err := db.CfMeta.NewIterator()
+	if err != nil {
+		klog.Exitf("Failed to iterate meta: %s", err)
+	}
 	iter.SeekToFirst()
 	defer iter.Close()
 	hasHeader := false
@@ -152,9 +160,9 @@ func dumpAllSlots(db *blockstore.DB) {
 			fmt.Println("slots:")
 			hasHeader = true
 		}
-		slot, ok := blockstore.ParseSlotKey(iter.Key().Data())
+		slot, ok := blockstore.ParseSlotKey(iter.Key())
 		if !ok {
-			klog.Errorf("Invalid slot key: %x", iter.Key().Data())
+			klog.Errorf("Invalid slot key: %x", iter.Key())
 			continue
 		}
 		dumpSlot(db, slot)
